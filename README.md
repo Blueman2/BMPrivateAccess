@@ -13,7 +13,7 @@ BMPrivateAccess is a single header library of private access utilities and macro
 Tested on MSVC, should work on any major compiler/platform that supports C++20.
 
 # Usage
-==Access to private member variables==
+**Access to private member variables**
 ```cpp
 struct PrivateAccessTests  
 {  
@@ -34,7 +34,7 @@ int main()
 }
 ```
 
-==Access to Private member functions==
+**Access to Private member functions**
 ```cpp
 struct PrivateAccessTests  
 {  
@@ -70,7 +70,7 @@ int main(int argc, char* argv[])
 }
 ```
 
-==Access to private nested types==
+**Access to private nested types**
 ```cpp
   
 struct PrivateAccessTests  
@@ -79,7 +79,7 @@ private:
     struct NestedPrivateType  
     {  
         int Value = 0;  
-    };    bool GetPrivateValue()  
+    };    
 };  
   
 DEFINE_PRIVATE_TYPE_ACCESSOR(PrivateAccessTests, NestedPrivateType)  
@@ -125,5 +125,6 @@ struct CallSuperTest : public CallSuperTestBase
         {  
            CallSuperTestBase_Private::Call_Test(*this);  
         });
-    }};
+    }
+};
 ```
