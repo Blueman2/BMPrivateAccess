@@ -25,22 +25,22 @@ SOFTWARE.
 #pragma once
 #include <type_traits>
 
-#define DEFINE_PRIVATE_MEMBER_ACCESSOR(ClassName, MemberName, Type) \
+#define DEFINE_PRIVATE_MEMBER_ACCESSOR(ClassName, MemberName, Type, ...) \
 namespace BMPrivateAccess\
 {\
-    struct ClassName##MemberName##Tag\
+    struct ClassName##MemberName##Tag##__VA_OPT__(T##__VA_ARGS__)\
     {\
         template<typename... TArgs>\
-        friend auto& AccessPrivate(BMPrivateAccess::ClassName##MemberName##Tag, TArgs&&... Args);\
+        friend auto& AccessPrivate(BMPrivateAccess::ClassName##MemberName##Tag##__VA_OPT__(T##__VA_ARGS__), TArgs&&... Args);\
     };\
-    template struct TAccessPrivateMember<ClassName##MemberName##Tag, &ClassName::MemberName>;\
+    template struct TAccessPrivateMember<ClassName##MemberName##Tag##__VA_OPT__(T##__VA_ARGS__), &ClassName##__VA_OPT__(<__VA_ARGS__>)::MemberName>;\
 }\
-namespace ClassName##_Private\
+namespace ClassName##__VA_OPT__(_T##__VA_ARGS__)##_Private\
 {\
     template<typename... TArgs>\
     static auto& Get_##MemberName(TArgs&&... Args)\
     {\
-        return AccessPrivate(BMPrivateAccess::ClassName##MemberName##Tag{}, std::forward<TArgs>(Args)...);\
+        return AccessPrivate(BMPrivateAccess::ClassName##MemberName##Tag##__VA_OPT__(T##__VA_ARGS__){}, std::forward<TArgs>(Args)...);\
     }\
 }\
 
