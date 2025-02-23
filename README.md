@@ -86,7 +86,7 @@ DEFINE_PRIVATE_TYPE_ACCESSOR(PrivateAccessTests, NestedPrivateType)
   
 int main(int argc, char* argv[])  
 {  
-    PrivateAccessTests_NestedPrivateType_Type NestedPrivateType{};  
+    PrivateAccessTests_Private::NestedPrivateType NestedPrivateType{};  
     NestedPrivateType.Value = 10;
 }
 ```
