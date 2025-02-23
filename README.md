@@ -1,4 +1,4 @@
-BMPrivateAccess is a single header library of private access utilities and macros, the library requires C++20.
+BMPrivateAccess is a single header library of private access utilities and macros, the library requires at least C++17.
 
 **Supports:**
 - Private members variable (including static members)
