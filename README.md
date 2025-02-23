@@ -10,7 +10,7 @@ BMPrivateAccess is a single header library of private access utilities and macro
 - No access to default function parameters
 - No access to reference member variables
 
-Tested on MSVC, should work on any major compiler/platform that supports C++20.
+Tested on MSVC, should work on any major compiler/platform that supports C++17.
 
 # Usage
 **Access to private member variables**
