@@ -24,36 +24,87 @@ SOFTWARE.
 
 #pragma once
 #include <type_traits>
+#include <tuple>
 
-#define DEFINE_PRIVATE_MEMBER_ACCESSOR(ClassName, MemberName, Type, ...) \
-namespace BMPrivateAccess\
-{\
-    struct ClassName##MemberName##Tag##__VA_OPT__(T##__VA_ARGS__)\
-    {\
-        template<typename... TArgs>\
-        friend auto& AccessPrivate(BMPrivateAccess::ClassName##MemberName##Tag##__VA_OPT__(T##__VA_ARGS__), TArgs&&... Args);\
-    };\
-    template struct TAccessPrivateMember<ClassName##MemberName##Tag##__VA_OPT__(T##__VA_ARGS__), &ClassName##__VA_OPT__(<__VA_ARGS__>)::MemberName>;\
-}\
-namespace ClassName##__VA_OPT__(_T##__VA_ARGS__)##_Private\
-{\
-    template<typename... TArgs>\
-    static auto& Get_##MemberName(TArgs&&... Args)\
-    {\
-        return AccessPrivate(BMPrivateAccess::ClassName##MemberName##Tag##__VA_OPT__(T##__VA_ARGS__){}, std::forward<TArgs>(Args)...);\
-    }\
-}\
+#if defined(__cpp_concepts)
+#define PRIVATE_CONCEPTS_DEFINED 1
+#else
+#define PRIVATE_CONCEPTS_DEFINED 0
+#endif
 
-#define PRIVATE_ACCESS_PARAN_LEFT (
-#define PRIVATE_ACCESS_PARAN_RIGHT )
+#define PRIVATE_CPP20_FEATURE_SET PRIVATE_CONCEPTS_DEFINED && __cpp_concepts >= 201907L;
 
+#define PRIVATE_FORCE_TOKEN(...) __VA_ARGS__
 #define PRIVATE_CAT_PASTE(a, b) a##b
 #define PRIVATE_CAT(a, b) PRIVATE_CAT_PASTE(a, b)
 
-#define PRIVATE_IMPL_VALUE_IF1(True, False) True
-#define PRIVATE_IMPL_VALUE_IF0(True, False) False
-#define PRIVATE_IMPL_VALUE_IF(True, False) False
-#define PRIVATE_VALUE_IF(condition, ...) PRIVATE_IMPL_VALUE_IF##condition(__VA_ARGS__)
+#define PRIVATE_IMPL_VALUE_IF1(True, False, ...) True(__VA_ARGS__)
+#define PRIVATE_IMPL_VALUE_IF0(True, False, ...) False(__VA_ARGS__)
+#define PRIVATE_IMPL_VALUE_IF(True, False, ...) False(__VA_ARGS__)
+#define PRIVATE_VALUE_IF(condition, True, False, ...) PRIVATE_IMPL_VALUE_IF##condition(True, False, __VA_ARGS__)
+
+#define PRIVATE_IMPL_VALUE_IF1_NOCALL(True, False) True
+#define PRIVATE_IMPL_VALUE_IF0_NOCALL(True, False) False
+#define PRIVATE_IMPL_VALUE_IF_NOCALL(True, False) False
+#define PRIVATE_VALUE_IF_NOCALL(condition, True, False) PRIVATE_IMPL_VALUE_IF##condition##_NOCALL(True, False)
+
+#if PRIVATE_CPP20_FEATURE_SET
+    #define PRIVATE_CONSTEVAL consteval
+    #define PRIVATE_VA_ASSERT(...)
+#else
+    #define PRIVATE_CONSTEVAL constexpr
+    #define PRIVATE_VA_ASSERT(Msg, ...) static_assert(BMPrivateAccess::TArgCounter<__VA_ARGS__>::Value == 0, Msg);
+#endif
+
+
+
+#define PRIVATE_ACCESS_PROLOGUE(TagName, ...)\
+    struct TagName
+
+#define PRIVATE_ACCESS_TEMPLATE_PROLOGUE(TagName, ...)\
+    template<typename... TArgs>\
+    struct TagName;\
+\
+    template<>\
+    struct TagName<__VA_ARGS__>
+
+
+#define PRIVATE_MEMBER_EPILOGUE(ClassName, MemberName, Tag, Class, ...)\
+    template struct TAccessPrivateMember<Tag, &Class::MemberName>;\
+
+#define PRIVATE_MEMBER_CALLAPI(NamespaceName, MemberName, TagName, Condition)\
+    namespace NamespaceName##_Private\
+    {\
+        template< Condition typename... TArgs>\
+        static auto& Get_##MemberName(TArgs&&... Args)\
+        {\
+            return AccessPrivate(TagName{}, std::forward<TArgs>(Args)...);\
+        }\
+    }\
+
+#define PRIVATE_MEMBER_CALLAPI_CONDITION(ClassName, ...) typename T, std::enable_if_t<std::is_same_v<T, ClassName<__VA_ARGS__>>, int> = 0, 
+#define PRIVATE_MEMBER_CALLAPI_NO_CONDITION(ClassName, ...) int = 0, 
+
+#define PRIVATE_DEFINE_TYPE(A, ...) A;
+#define PRIVATE_DEFINE_TYPE_TMPLT(A, ...) A<__VA_ARGS__>;
+
+#define DEFINE_PRIVATE_MEMBER_ACCESSOR_Impl(ClassName, MemberName, Type, Prologue, DefineType, CallAPICondition, ...) \
+namespace BMPrivateAccess\
+{\
+    Prologue(ClassName##MemberName##Tag, __VA_ARGS__)\
+    {\
+        template<typename... TArgs>\
+        friend auto& AccessPrivate(ClassName##MemberName##Tag, TArgs&&... Args);\
+    };\
+    \
+    using PRIVATE_CAT(TTag##ClassName##MemberName, __LINE__) = DefineType(ClassName##MemberName##Tag, __VA_ARGS__);\
+    using PRIVATE_CAT(TClassType##ClassName, __LINE__) = DefineType(ClassName, __VA_ARGS__);\
+    PRIVATE_MEMBER_EPILOGUE(ClassName, MemberName, PRIVATE_CAT(TTag##ClassName##MemberName, __LINE__), PRIVATE_CAT(TClassType##ClassName, __LINE__), __VA_ARGS__)\
+}\
+    PRIVATE_MEMBER_CALLAPI(ClassName, MemberName, BMPrivateAccess::PRIVATE_CAT(TTag##ClassName##MemberName, __LINE__),\
+    CallAPICondition(ClassName, __VA_ARGS__))
+
+
 
 #define CREATE_OVERLOAD_HELPER(ClassName, MemberName, ReturnType, ...)\
     auto* PRIVATE_CAT(_GetType##ClassName##MemberName,__LINE__)(ReturnType(ClassName::*)(__VA_ARGS__))\
@@ -70,69 +121,192 @@ namespace ClassName##__VA_OPT__(_T##__VA_ARGS__)##_Private\
         return FunctionPtr;\
     }\
 
-#define GET_FUNCTION_TAG_TYPE(ClassName, MemberName, ...) ClassName##MemberName##Tag##__VA_OPT__(<__VA_ARGS__>)
-#define CREATE_CALL_FUNCTION(ClassName, MemberName, ReturnType, ...)\
+#define CREATE_NO_OVERLOAD_HELPER(...)
+
+#define CREATE_CALL_FUNCTION(ClassName, MemberName, ReturnType, TagName, ...)\
     template<typename... TArgs>\
     static ReturnType Call_##MemberName(TArgs&&... Args)\
     {\
-        return CallPrivate(BMPrivateAccess::GET_FUNCTION_TAG_TYPE(ClassName, MemberName, __VA_ARGS__){}, std::forward<TArgs>(Args)...);\
+        return CallPrivate(TagName{}, std::forward<TArgs>(Args)...);\
     }\
 
-#define CREATE_CALL_FUNCTION_OVERLOAD(ClassName, MemberName, ReturnType, ...)\
+#define CREATE_CALL_FUNCTION_OVERLOAD(ClassName, MemberName, ReturnType, TagName, ...)\
     template<typename... TArgs>\
-    requires(BMPrivateAccess::TOverloadHelper<TArgs...>::template bSame<__VA_ARGS__>)\
-    static ReturnType Call_##MemberName(ClassName& Obj, TArgs&&... Args)\
+    static auto Call_##MemberName(ClassName& Obj, TArgs&&... Args) -> std::enable_if_t<BMPrivateAccess::TOverloadHelper<TArgs...>::template bSame<__VA_ARGS__>, ReturnType>\
     {\
-        return CallPrivate(BMPrivateAccess::GET_FUNCTION_TAG_TYPE(ClassName, MemberName, __VA_ARGS__){}, Obj, std::forward<TArgs>(Args)...);\
+        return CallPrivate(TagName{}, Obj, std::forward<TArgs>(Args)...);\
     }\
 \
     template<typename... TArgs>\
-    requires(BMPrivateAccess::TOverloadHelper<TArgs...>::template bSame<__VA_ARGS__>)\
-    static ReturnType Call_##MemberName(const ClassName& Obj, TArgs&&... Args)\
+    static auto Call_##MemberName(const ClassName& Obj, TArgs&&... Args) -> std::enable_if_t<BMPrivateAccess::TOverloadHelper<TArgs...>::template bSame<__VA_ARGS__>, ReturnType>\
     {\
-        return CallPrivate(BMPrivateAccess::GET_FUNCTION_TAG_TYPE(ClassName, MemberName, __VA_ARGS__){}, Obj, std::forward<TArgs>(Args)...);\
+        return CallPrivate(TagName{}, Obj, std::forward<TArgs>(Args)...);\
     }\
     
 
-#define DEFINE_PRIVATE_FUNCTION_ACCESSOR(ClassName, MemberName, ReturnType, ...) \
+#define PRIVATE_RESOLVE_OVERLOAD_FUNCTION_ADDRESS(ClassName, MemberName, HelperFunction)\
+    static_cast<std::remove_pointer_t<decltype(HelperFunction(&ClassName::MemberName))>>(&ClassName::MemberName)
+
+#define PRIVATE_RESOLVE_FUNCTION_ADDRESS(ClassName, MemberName, ...)\
+    &ClassName::MemberName
+
+#define DEFINE_PRIVATE_FUNCTION_ACCESSOR_Impl(ClassName, MemberName, ReturnType, Prologue, DefineTypes, CreateOverloadHelper, ResolveFunctionAddress, CreateCallFunction, ...) \
 namespace BMPrivateAccess\
 {\
-    __VA_OPT__(template<typename... TArgs>)\
-    __VA_OPT__(struct ClassName##MemberName##Tag;)\
-\
-    __VA_OPT__(template<>)\
-    struct GET_FUNCTION_TAG_TYPE(ClassName, MemberName, __VA_ARGS__)\
+    Prologue(ClassName##MemberName##Tag, __VA_ARGS__)\
     {\
         template<typename... TArgs>\
-        friend ReturnType CallPrivate(GET_FUNCTION_TAG_TYPE(ClassName, MemberName, __VA_ARGS__), TArgs&&... Args);\
+        friend ReturnType CallPrivate(ClassName##MemberName##Tag, TArgs&&... Args);\
     };\
+    using PRIVATE_CAT(TTag##ClassName##MemberName, __LINE__) = DefineTypes(ClassName##MemberName##Tag, __VA_ARGS__);\
 \
-    __VA_OPT__(CREATE_OVERLOAD_HELPER(ClassName, MemberName, ReturnType, __VA_ARGS__))\
-    template struct TAccessPrivateFunction<GET_FUNCTION_TAG_TYPE(ClassName, MemberName, __VA_ARGS__), ClassName, ReturnType,\
-    __VA_OPT__(static_cast<std::remove_pointer_t<decltype(PRIVATE_CAT(_GetType##ClassName##MemberName,__LINE__)(&ClassName::MemberName))>> PRIVATE_ACCESS_PARAN_LEFT ) &ClassName::MemberName __VA_OPT__( PRIVATE_ACCESS_PARAN_RIGHT )>;\
+    CreateOverloadHelper(ClassName, MemberName, ReturnType, __VA_ARGS__)\
+    template struct TAccessPrivateFunction<PRIVATE_CAT(TTag##ClassName##MemberName, __LINE__), ClassName, ReturnType,\
+    ResolveFunctionAddress(ClassName, MemberName, PRIVATE_CAT(_GetType##ClassName##MemberName,__LINE__))>;\
 }\
 namespace ClassName##_Private\
 {\
-    PRIVATE_VALUE_IF(__VA_OPT__(1), CREATE_CALL_FUNCTION_OVERLOAD(ClassName, MemberName, ReturnType, __VA_ARGS__),\
-    CREATE_CALL_FUNCTION(ClassName, MemberName, ReturnType, __VA_ARGS__))\
+    CreateCallFunction(ClassName, MemberName, ReturnType, BMPrivateAccess::PRIVATE_CAT(TTag##ClassName##MemberName, __LINE__), __VA_ARGS__)\
 }\
 
 
 #define DEFINE_PRIVATE_TYPE_ACCESSOR(Type1, Type2) \
 namespace BMPrivateAccess\
 {\
-struct Type1##_##Type2##_##_PrivateAccessTag\
-{\
-    friend consteval auto* ResolvePrivateType(Type1##_##Type2##_##_PrivateAccessTag);\
-};\
+    struct Type1##_##Type2##_PrivateAccessTag\
+    {\
+    };\
 \
-template struct TAccessPrivateType<Type1##_##Type2##_##_PrivateAccessTag, Type1::Type2>;\
+template struct TAccessPrivateType<Type1##_##Type2##_PrivateAccessTag, Type1::Type2>;\
+PRIVATE_CONSTEVAL auto* ResolvePrivateType(BMPrivateAccess::Type1##_##Type2##_PrivateAccessTag);\
 }\
-using Type1##_##Type2##_Type = std::remove_pointer_t<decltype(ResolvePrivateType(BMPrivateAccess::Type1##_##Type2##_##_PrivateAccessTag{}))>;
+namespace Type1##_Private\
+{\
+    using Type2 = std::remove_pointer_t<decltype(ResolvePrivateType(BMPrivateAccess::Type1##_##Type2##_PrivateAccessTag{}))>;\
+}\
 
+#define DEFINE_PRIVATE_MEMBER_ACCESSOR_TMPLT(ClassName, MemberName, Type, ...) DEFINE_PRIVATE_MEMBER_ACCESSOR_Impl(ClassName, MemberName, Type,\
+    PRIVATE_ACCESS_TEMPLATE_PROLOGUE,\
+    PRIVATE_DEFINE_TYPE_TMPLT,\
+    PRIVATE_MEMBER_CALLAPI_CONDITION,\
+    __VA_ARGS__)
+
+#define DEFINE_PRIVATE_FUNCTION_ACCESSOR_OVERLOAD(ClassName, MemberName, ReturnType, ...) DEFINE_PRIVATE_FUNCTION_ACCESSOR_Impl(ClassName, MemberName, ReturnType,\
+    PRIVATE_ACCESS_TEMPLATE_PROLOGUE,\
+    PRIVATE_DEFINE_TYPE_TMPLT,\
+    CREATE_OVERLOAD_HELPER,\
+    PRIVATE_RESOLVE_OVERLOAD_FUNCTION_ADDRESS,\
+    CREATE_CALL_FUNCTION_OVERLOAD,\
+    __VA_ARGS__)
+
+
+#if PRIVATE_CPP20_FEATURE_SET
+#define DEFINE_PRIVATE_MEMBER_ACCESSOR(ClassName, MemberName, Type, ...) DEFINE_PRIVATE_MEMBER_ACCESSOR_Impl(ClassName, MemberName, Type,\
+    PRIVATE_VALUE_IF_NOCALL(__VA_OPT__(1), PRIVATE_ACCESS_TEMPLATE_PROLOGUE, PRIVATE_ACCESS_PROLOGUE),\
+    PRIVATE_VALUE_IF_NOCALL(__VA_OPT__(1), PRIVATE_DEFINE_TYPE_TMPLT, PRIVATE_DEFINE_TYPE),\
+    PRIVATE_VALUE_IF_NOCALL(__VA_OPT__(1), PRIVATE_MEMBER_CALLAPI_CONDITION, PRIVATE_MEMBER_CALLAPI_NO_CONDITION), __VA_ARGS__)
+
+#define DEFINE_PRIVATE_FUNCTION_ACCESSOR(ClassName, MemberName, ReturnType, ...) DEFINE_PRIVATE_FUNCTION_ACCESSOR_Impl(ClassName, MemberName, ReturnType,\
+    PRIVATE_VALUE_IF_NOCALL(__VA_OPT__(1), PRIVATE_ACCESS_TEMPLATE_PROLOGUE, PRIVATE_ACCESS_PROLOGUE),\
+    PRIVATE_VALUE_IF_NOCALL(__VA_OPT__(1), PRIVATE_DEFINE_TYPE_TMPLT, PRIVATE_DEFINE_TYPE),\
+    PRIVATE_VALUE_IF_NOCALL(__VA_OPT__(1), CREATE_OVERLOAD_HELPER, CREATE_NO_OVERLOAD_HELPER),\
+    PRIVATE_VALUE_IF_NOCALL(__VA_OPT__(1), PRIVATE_RESOLVE_OVERLOAD_FUNCTION_ADDRESS, PRIVATE_RESOLVE_FUNCTION_ADDRESS),\
+    PRIVATE_VALUE_IF_NOCALL(__VA_OPT__(1), CREATE_CALL_FUNCTION_OVERLOAD, CREATE_CALL_FUNCTION), __VA_ARGS__)
+
+namespace BMPrivateAccesscpp20_
+{
+    template<auto TFunction, typename... TArgs>
+    concept CIsStaticFunctionPtr = requires(TArgs&&... Args)
+    {
+        {TFunction(std::forward<TArgs>(Args)...)};
+    };
+
+    template<auto TMemberPtr>
+    concept CIsRegularPointer = requires()
+    {
+        {*TMemberPtr};
+    };
+}
+#else
+#define DEFINE_PRIVATE_MEMBER_ACCESSOR(ClassName, MemberName, Type, ...)\
+    PRIVATE_VA_ASSERT("Private template accessor not supported in C++17, use DEFINE_PRIVATE_MEMBER_ACCESSOR_TMPLT instead", __VA_ARGS__)\
+    DEFINE_PRIVATE_MEMBER_ACCESSOR_Impl(ClassName, MemberName, Type,\
+    PRIVATE_ACCESS_PROLOGUE,\
+    PRIVATE_DEFINE_TYPE,\
+    PRIVATE_MEMBER_CALLAPI_NO_CONDITION)
+
+#define DEFINE_PRIVATE_FUNCTION_ACCESSOR(ClassName, MemberName, ReturnType, ...)\
+    PRIVATE_VA_ASSERT("Private function overload accessor not supported in C++17, use DEFINE_PRIVATE_FUNCTION_ACCESSOR_OVERLOAD instead", __VA_ARGS__)\
+    DEFINE_PRIVATE_FUNCTION_ACCESSOR_Impl(ClassName, MemberName, ReturnType,\
+    PRIVATE_ACCESS_PROLOGUE,\
+    PRIVATE_DEFINE_TYPE,\
+    CREATE_NO_OVERLOAD_HELPER,\
+    PRIVATE_RESOLVE_FUNCTION_ADDRESS,\
+    CREATE_CALL_FUNCTION)
+
+namespace BMPrivateAccesscpp17_
+{
+    //cpp17 version using SFINAE
+    template<auto TFunctionPtr, typename... TArgs>
+    struct TIsStaticFunctionPtr
+    {
+        static constexpr bool bValue = true; 
+    };
+
+    template<auto TFunctionPtr, typename TObj, typename... TArgs>
+    struct TIsStaticFunctionPtr<TFunctionPtr, TObj, TArgs...>
+    {
+        template<decltype(TFunctionPtr) TPtr>
+        static constexpr auto Test() -> decltype((std::declval<TObj>().*TPtr)(std::declval<TArgs>()...), std::false_type{})
+        {
+            return std::false_type{};
+        }
+
+        template<decltype(TFunctionPtr) TPtr>
+        static constexpr auto Test(...) -> std::true_type
+        {
+            return std::true_type{};
+        }
+
+        static constexpr bool bValue = decltype(Test<TFunctionPtr>())::value;
+    };
+
+    template<typename TPointer>
+    struct TIsRegularPointer : public std::false_type
+    {
+    };
+
+    template<typename TPointer>
+    struct TIsRegularPointer<TPointer*> : public std::true_type
+    {
+    };
+}
+#endif
 
 namespace BMPrivateAccess
 {
+    template<auto TFunction, typename... TArgs>
+    inline static constexpr bool bIsStaticFunctionPtr =
+#if PRIVATE_CPP20_FEATURE_SET
+        BMPrivateAccesscpp20_::CIsStaticFunctionPtr<TFunction, TArgs...>;
+#else
+        BMPrivateAccesscpp17_::TIsStaticFunctionPtr<TFunction, TArgs...>::bValue;
+#endif
+
+    template<auto TPointer>
+    inline static constexpr bool bIsRegularPointer =
+#if PRIVATE_CPP20_FEATURE_SET
+        BMPrivateAccesscpp20_::CIsRegularPointer<TPointer>;
+#else
+        BMPrivateAccesscpp17_::TIsRegularPointer<decltype(TPointer)>::value;
+#endif
+
+    template<typename... TArgs>
+    struct TArgCounter
+    {
+        static constexpr size_t Value = sizeof...(TArgs);
+    };
+    
     template<auto TFunctionPtr, typename... TArgs>
     struct TGetFunctionReturnType
     {
@@ -142,29 +316,20 @@ namespace BMPrivateAccess
     template<typename... TArgs>
     struct TOverloadHelper
     {
+        template<typename... TTupleArgs>
+        using TTuple = std::tuple<std::decay_t<TTupleArgs>...>;
+        
         template<typename... TOverloadArgs>
-        static constexpr bool bSame = std::same_as<std::tuple<std::decay_t<TArgs>...>, std::tuple<std::decay_t<TOverloadArgs>...>>;
+        static constexpr bool bSame = std::is_same_v<TTuple<TArgs...>, TTuple<TOverloadArgs>...>;
     };
     
-    template<auto TFunction, typename... TArgs>
-    concept CIsStaticFunctionPtr = requires(TArgs&&... Args)
-    {
-        {TFunction(std::forward<TArgs>(Args)...)};
-    };
-
-    template<auto TMemberPtr>
-    concept CIsMemberPtr = requires()
-    {
-        {*TMemberPtr};
-    };
-
     template<typename Tag, auto TMemberPtr>
     struct TAccessPrivateMember
     {
         template<typename... TArgs>
         friend auto& AccessPrivate(Tag, TArgs&&... Args)
         {
-            if constexpr(BMPrivateAccess::CIsMemberPtr<TMemberPtr>)
+            if constexpr(bIsRegularPointer<TMemberPtr>)
             {
                 return *TMemberPtr;
             }
@@ -183,20 +348,21 @@ namespace BMPrivateAccess
     template<typename Tag, typename T, typename TReturn, auto TFunctionPtr>
     struct TAccessPrivateFunction
     {
+        template<typename TObject, typename... THelperArgs>
+        static auto CallHelper(TObject&& Object, THelperArgs&&... HelperArgs) -> TReturn
+        {
+            return (Object.*TFunctionPtr)(std::forward<THelperArgs>(HelperArgs)...);
+        };
+        
         template<typename... TArgs>
         friend TReturn CallPrivate(Tag, TArgs&&... Args)
         {
-            if constexpr(BMPrivateAccess::CIsStaticFunctionPtr<TFunctionPtr, TArgs...>)
+            if constexpr(bIsStaticFunctionPtr<TFunctionPtr, TArgs...>)
             {
                 return TFunctionPtr(std::forward<TArgs>(Args)...);
             }
             else
             {
-                auto CallHelper = []<typename TObject, typename... THelperArgs>(TObject&& Object, THelperArgs&&... HelperArgs) -> TReturn
-                {
-                    return (Object.*TFunctionPtr)(std::forward<THelperArgs>(HelperArgs)...);
-                };
-
                 return CallHelper(std::forward<TArgs>(Args)...);
             }
         }
@@ -205,7 +371,7 @@ namespace BMPrivateAccess
     template<typename Tag, typename T>
     struct TAccessPrivateType
     {
-        friend consteval auto* ResolvePrivateType(Tag)
+        friend PRIVATE_CONSTEVAL auto* ResolvePrivateType(Tag)
         {
             T* Ptr = nullptr;
             return Ptr;
