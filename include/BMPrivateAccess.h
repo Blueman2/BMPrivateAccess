@@ -32,7 +32,7 @@ SOFTWARE.
 #define PRIVATE_CONCEPTS_DEFINED 0
 #endif
 
-#define PRIVATE_CPP20_FEATURE_SET PRIVATE_CONCEPTS_DEFINED && __cpp_concepts >= 201907L;
+#define PRIVATE_CPP20_FEATURE_SET PRIVATE_CONCEPTS_DEFINED && __cpp_concepts >= 201907L
 
 #define PRIVATE_FORCE_TOKEN(...) __VA_ARGS__
 #define PRIVATE_CAT_PASTE(a, b) a##b
@@ -130,6 +130,20 @@ namespace BMPrivateAccess\
         return CallPrivate(TagName{}, std::forward<TArgs>(Args)...);\
     }\
 
+#define CREATE_CALL_FUNCTION_TMPLT(ClassName, MemberName, ReturnType, TagName, ...)\
+    template<typename... TArgs>\
+    struct T##MemberName;\
+\
+    template<>\
+    struct T##MemberName<__VA_ARGS__>\
+    {\
+        template<typename... TArgs>\
+        static ReturnType Call(TArgs&&... Args)\
+        {\
+            return CallPrivate(TagName{}, std::forward<TArgs>(Args)...);\
+        }\
+    };
+
 #define CREATE_CALL_FUNCTION_OVERLOAD(ClassName, MemberName, ReturnType, TagName, ...)\
     template<typename... TArgs>\
     static auto Call_##MemberName(ClassName& Obj, TArgs&&... Args) -> std::enable_if_t<BMPrivateAccess::TOverloadHelper<TArgs...>::template bSame<__VA_ARGS__>, ReturnType>\
@@ -144,11 +158,14 @@ namespace BMPrivateAccess\
     }\
     
 
-#define PRIVATE_RESOLVE_OVERLOAD_FUNCTION_ADDRESS(ClassName, MemberName, HelperFunction)\
+#define PRIVATE_RESOLVE_OVERLOAD_FUNCTION_ADDRESS(ClassName, MemberName, HelperFunction, ...)\
     static_cast<std::remove_pointer_t<decltype(HelperFunction(&ClassName::MemberName))>>(&ClassName::MemberName)
 
 #define PRIVATE_RESOLVE_FUNCTION_ADDRESS(ClassName, MemberName, ...)\
     &ClassName::MemberName
+
+#define PRIVATE_RESOLVE_TMPLT_FUNCTION_ADDRESS(ClassName, MemberName, Misc, ...)\
+    &ClassName::MemberName<__VA_ARGS__>
 
 #define DEFINE_PRIVATE_FUNCTION_ACCESSOR_Impl(ClassName, MemberName, ReturnType, Prologue, DefineTypes, CreateOverloadHelper, ResolveFunctionAddress, CreateCallFunction, ...) \
 namespace BMPrivateAccess\
@@ -162,7 +179,7 @@ namespace BMPrivateAccess\
 \
     CreateOverloadHelper(ClassName, MemberName, ReturnType, __VA_ARGS__)\
     template struct TAccessPrivateFunction<PRIVATE_CAT(TTag##ClassName##MemberName, __LINE__), ClassName, ReturnType,\
-    ResolveFunctionAddress(ClassName, MemberName, PRIVATE_CAT(_GetType##ClassName##MemberName,__LINE__))>;\
+    ResolveFunctionAddress(ClassName, MemberName, PRIVATE_CAT(_GetType##ClassName##MemberName,__LINE__), __VA_ARGS__)>;\
 }\
 namespace ClassName##_Private\
 {\
@@ -199,6 +216,14 @@ namespace Type1##_Private\
     CREATE_CALL_FUNCTION_OVERLOAD,\
     __VA_ARGS__)
 
+#define DEFINE_PRIVATE_FUNCTION_ACCESSOR_TMPLT(ClassName, MemberName, ReturnType, ...)\
+    DEFINE_PRIVATE_FUNCTION_ACCESSOR_Impl(ClassName, MemberName, ReturnType,\
+    PRIVATE_ACCESS_PROLOGUE,\
+    PRIVATE_DEFINE_TYPE,\
+    CREATE_NO_OVERLOAD_HELPER,\
+    PRIVATE_RESOLVE_TMPLT_FUNCTION_ADDRESS,\
+    CREATE_CALL_FUNCTION_TMPLT,\
+    __VA_ARGS__)
 
 #if PRIVATE_CPP20_FEATURE_SET
 #define DEFINE_PRIVATE_MEMBER_ACCESSOR(ClassName, MemberName, Type, ...) DEFINE_PRIVATE_MEMBER_ACCESSOR_Impl(ClassName, MemberName, Type,\
@@ -348,6 +373,10 @@ namespace BMPrivateAccess
     template<typename Tag, typename T, typename TReturn, auto TFunctionPtr>
     struct TAccessPrivateFunction
     {
+        //Workaround for internal compiler error with msvc 14.43.34808
+        using TFunctionType = decltype(TFunctionPtr);
+        static constexpr TFunctionType TFunctionValue = TFunctionPtr;
+        
         template<typename TObject, typename... THelperArgs>
         static auto CallHelper(TObject&& Object, THelperArgs&&... HelperArgs) -> TReturn
         {
@@ -359,7 +388,7 @@ namespace BMPrivateAccess
         {
             if constexpr(bIsStaticFunctionPtr<TFunctionPtr, TArgs...>)
             {
-                return TFunctionPtr(std::forward<TArgs>(Args)...);
+                return TFunctionValue(std::forward<TArgs>(Args)...);
             }
             else
             {
