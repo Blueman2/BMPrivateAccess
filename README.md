@@ -1,4 +1,4 @@
-BMPrivateAccess is a single header library of private access utilities and macros, the library requires C++20.
+BMPrivateAccess is a single header library of private access utilities and macros, the library requires at least C++17.
 
 **Supports:**
 - Private members variable (including static members)
@@ -10,7 +10,7 @@ BMPrivateAccess is a single header library of private access utilities and macro
 - No access to default function parameters
 - No access to reference member variables
 
-Tested on MSVC, should work on any major compiler/platform that supports C++20.
+Tested on MSVC, should work on any major compiler/platform that supports C++17.
 
 # Usage
 **Access to private member variables**
@@ -86,7 +86,7 @@ DEFINE_PRIVATE_TYPE_ACCESSOR(PrivateAccessTests, NestedPrivateType)
   
 int main(int argc, char* argv[])  
 {  
-    PrivateAccessTests_NestedPrivateType_Type NestedPrivateType{};  
+    PrivateAccessTests_Private::NestedPrivateType NestedPrivateType{};  
     NestedPrivateType.Value = 10;
 }
 ```
