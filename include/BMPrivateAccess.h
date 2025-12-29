@@ -107,6 +107,13 @@ namespace BMPrivateAccess\
 
 
 #define CREATE_OVERLOAD_HELPER(ClassName, MemberName, ReturnType, ...)\
+    auto* PRIVATE_CAT(_GetType##ClassName##MemberName,__LINE__)(ReturnType(*)(__VA_ARGS__))\
+    {\
+        using TFunctionPtr = ReturnType(*)(__VA_ARGS__);\
+        TFunctionPtr* FunctionPtr = nullptr;\
+        return FunctionPtr;\
+    }\
+\
     auto* PRIVATE_CAT(_GetType##ClassName##MemberName,__LINE__)(ReturnType(ClassName::*)(__VA_ARGS__))\
     {\
         using TFunctionPtr = ReturnType(ClassName::*)(__VA_ARGS__);\
@@ -145,6 +152,12 @@ namespace BMPrivateAccess\
     };
 
 #define CREATE_CALL_FUNCTION_OVERLOAD(ClassName, MemberName, ReturnType, TagName, ...)\
+    template<typename... TArgs>\
+    static auto Call_##MemberName(TArgs&&... Args) -> std::enable_if_t<BMPrivateAccess::TOverloadHelper<TArgs...>::template bSame<__VA_ARGS__>, ReturnType>\
+    {\
+        return CallPrivate(TagName{}, std::forward<TArgs>(Args)...);\
+    }\
+\
     template<typename... TArgs>\
     static auto Call_##MemberName(ClassName& Obj, TArgs&&... Args) -> std::enable_if_t<BMPrivateAccess::TOverloadHelper<TArgs...>::template bSame<__VA_ARGS__>, ReturnType>\
     {\
@@ -345,7 +358,7 @@ namespace BMPrivateAccess
         using TTuple = std::tuple<std::decay_t<TTupleArgs>...>;
         
         template<typename... TOverloadArgs>
-        static constexpr bool bSame = std::is_same_v<TTuple<TArgs...>, TTuple<TOverloadArgs>...>;
+        static constexpr bool bSame = std::is_same_v<TTuple<TArgs...>, TTuple<TOverloadArgs...>>;
     };
     
     template<typename Tag, auto TMemberPtr>
