@@ -107,21 +107,23 @@ namespace BMPrivateAccess\
 
 
 #define CREATE_OVERLOAD_HELPER(ClassName, MemberName, ReturnType, ...)\
-    auto* PRIVATE_CAT(_GetType##ClassName##MemberName,__LINE__)(ReturnType(*)(__VA_ARGS__))\
+    static_assert(BMPrivateAccess::TArgCounter<__VA_ARGS__>::Value > 0, "Overload helper requires at least one argument to differentiate overloads, use void if overloaded by cv-qualifiers only");\
+\
+    static PRIVATE_CONSTEVAL auto* PRIVATE_CAT(_GetType##ClassName##MemberName,__LINE__)(ReturnType(*)(__VA_ARGS__))\
     {\
         using TFunctionPtr = ReturnType(*)(__VA_ARGS__);\
         TFunctionPtr* FunctionPtr = nullptr;\
         return FunctionPtr;\
     }\
 \
-    auto* PRIVATE_CAT(_GetType##ClassName##MemberName,__LINE__)(ReturnType(ClassName::*)(__VA_ARGS__))\
+    static PRIVATE_CONSTEVAL auto* PRIVATE_CAT(_GetType##ClassName##MemberName,__LINE__)(ReturnType(ClassName::*)(__VA_ARGS__))\
     {\
         using TFunctionPtr = ReturnType(ClassName::*)(__VA_ARGS__);\
         TFunctionPtr* FunctionPtr = nullptr;\
         return FunctionPtr;\
     }\
 \
-    auto* PRIVATE_CAT(_GetType##ClassName##MemberName,__LINE__)(ReturnType(ClassName::*)(__VA_ARGS__) const)\
+    static PRIVATE_CONSTEVAL auto* PRIVATE_CAT(_GetType##ClassName##MemberName,__LINE__)(ReturnType(ClassName::*)(__VA_ARGS__) const)\
     {\
         using TFunctionPtr = ReturnType(ClassName::*)(__VA_ARGS__) const;\
         TFunctionPtr* FunctionPtr = nullptr;\
@@ -152,6 +154,8 @@ namespace BMPrivateAccess\
     };
 
 #define CREATE_CALL_FUNCTION_OVERLOAD(ClassName, MemberName, ReturnType, TagName, ...)\
+    static constexpr bool PRIVATE_CAT(_bConstFunction_##MemberName##_, __LINE__) = IsConstFunction(TagName{});\
+    \
     template<typename... TArgs>\
     static auto Call_##MemberName(TArgs&&... Args) -> std::enable_if_t<BMPrivateAccess::TOverloadHelper<TArgs...>::template bSame<__VA_ARGS__>, ReturnType>\
     {\
@@ -159,13 +163,13 @@ namespace BMPrivateAccess\
     }\
 \
     template<typename... TArgs>\
-    static auto Call_##MemberName(ClassName& Obj, TArgs&&... Args) -> std::enable_if_t<BMPrivateAccess::TOverloadHelper<TArgs...>::template bSame<__VA_ARGS__>, ReturnType>\
+    static auto Call_##MemberName(ClassName& Obj, TArgs&&... Args) -> std::enable_if_t<!PRIVATE_CAT(_bConstFunction_##MemberName##_, __LINE__) && BMPrivateAccess::TOverloadHelper<TArgs...>::template bSame<__VA_ARGS__>, ReturnType>\
     {\
         return CallPrivate(TagName{}, Obj, std::forward<TArgs>(Args)...);\
     }\
 \
     template<typename... TArgs>\
-    static auto Call_##MemberName(const ClassName& Obj, TArgs&&... Args) -> std::enable_if_t<BMPrivateAccess::TOverloadHelper<TArgs...>::template bSame<__VA_ARGS__>, ReturnType>\
+    static auto Call_##MemberName(const ClassName& Obj, TArgs&&... Args) -> std::enable_if_t<PRIVATE_CAT(_bConstFunction_##MemberName##_, __LINE__) && BMPrivateAccess::TOverloadHelper<TArgs...>::template bSame<__VA_ARGS__>, ReturnType>\
     {\
         return CallPrivate(TagName{}, Obj, std::forward<TArgs>(Args)...);\
     }\
@@ -183,16 +187,18 @@ namespace BMPrivateAccess\
 #define DEFINE_PRIVATE_FUNCTION_ACCESSOR_Impl(ClassName, MemberName, ReturnType, Prologue, DefineTypes, CreateOverloadHelper, ResolveFunctionAddress, CreateCallFunction, ...) \
 namespace BMPrivateAccess\
 {\
-    Prologue(ClassName##MemberName##Tag, __VA_ARGS__)\
+    Prologue(ClassName##MemberName##Tag, ReturnType, __VA_ARGS__)\
     {\
         template<typename... TArgs>\
         friend ReturnType CallPrivate(ClassName##MemberName##Tag, TArgs&&... Args);\
     };\
-    using PRIVATE_CAT(TTag##ClassName##MemberName, __LINE__) = DefineTypes(ClassName##MemberName##Tag, __VA_ARGS__);\
+    using PRIVATE_CAT(TTag##ClassName##MemberName, __LINE__) = DefineTypes(ClassName##MemberName##Tag, ReturnType, __VA_ARGS__);\
 \
     CreateOverloadHelper(ClassName, MemberName, ReturnType, __VA_ARGS__)\
     template struct TAccessPrivateFunction<PRIVATE_CAT(TTag##ClassName##MemberName, __LINE__), ClassName, ReturnType,\
     ResolveFunctionAddress(ClassName, MemberName, PRIVATE_CAT(_GetType##ClassName##MemberName,__LINE__), __VA_ARGS__)>;\
+    \
+    constexpr bool IsConstFunction(PRIVATE_CAT(TTag##ClassName##MemberName, __LINE__));\
 }\
 namespace ClassName##_Private\
 {\
@@ -338,7 +344,13 @@ namespace BMPrivateAccess
 #else
         BMPrivateAccesscpp17_::TIsRegularPointer<decltype(TPointer)>::value;
 #endif
-
+    
+    template<typename T>
+    struct TIsConstFunctionPtr : public std::false_type {};
+    
+    template<typename C, typename R, typename... TArgs>
+    struct TIsConstFunctionPtr<R(C::*)(TArgs...) const> : public std::true_type {};
+    
     template<typename... TArgs>
     struct TArgCounter
     {
@@ -351,6 +363,18 @@ namespace BMPrivateAccess
         using Type = std::invoke_result_t<decltype(TFunctionPtr), TArgs...>;
     };
 
+    template<typename TTuple>
+    struct TTupleVoidDecay
+    {
+        using Type = TTuple;
+    };
+    
+    template<>
+    struct TTupleVoidDecay<std::tuple<void>>
+    {
+        using Type = std::tuple<>;
+    };
+    
     template<typename... TArgs>
     struct TOverloadHelper
     {
@@ -358,7 +382,7 @@ namespace BMPrivateAccess
         using TTuple = std::tuple<std::decay_t<TTupleArgs>...>;
         
         template<typename... TOverloadArgs>
-        static constexpr bool bSame = std::is_same_v<TTuple<TArgs...>, TTuple<TOverloadArgs...>>;
+        static constexpr bool bSame = std::is_same_v<TTuple<TArgs...>, typename TTupleVoidDecay<TTuple<TOverloadArgs...>>::Type>;
     };
     
     template<typename Tag, auto TMemberPtr>
@@ -388,7 +412,7 @@ namespace BMPrivateAccess
     {
         //Workaround for internal compiler error with msvc 14.43.34808
         using TFunctionType = decltype(TFunctionPtr);
-        static constexpr TFunctionType TFunctionValue = TFunctionPtr;
+        inline static const TFunctionType TFunctionValue = TFunctionPtr;
         
         template<typename TObject, typename... THelperArgs>
         static auto CallHelper(TObject&& Object, THelperArgs&&... HelperArgs) -> TReturn
@@ -407,6 +431,11 @@ namespace BMPrivateAccess
             {
                 return CallHelper(std::forward<TArgs>(Args)...);
             }
+        }
+        
+        friend constexpr bool IsConstFunction(Tag)
+        {
+            return TIsConstFunctionPtr<TFunctionType>::value;
         }
     };
 
