@@ -290,31 +290,6 @@ namespace BMPrivateAccesscpp20_
 
 namespace BMPrivateAccesscpp17_
 {
-    //cpp17 version using SFINAE
-    template<auto TFunctionPtr, typename... TArgs>
-    struct TIsStaticFunctionPtr
-    {
-        static constexpr bool bValue = true; 
-    };
-
-    template<auto TFunctionPtr, typename TObj, typename... TArgs>
-    struct TIsStaticFunctionPtr<TFunctionPtr, TObj, TArgs...>
-    {
-        template<decltype(TFunctionPtr) TPtr>
-        static constexpr auto Test() -> decltype((std::declval<TObj>().*TPtr)(std::declval<TArgs>()...), std::false_type{})
-        {
-            return std::false_type{};
-        }
-
-        template<decltype(TFunctionPtr) TPtr>
-        static constexpr auto Test(...) -> std::true_type
-        {
-            return std::true_type{};
-        }
-
-        static constexpr bool bValue = decltype(Test<TFunctionPtr>())::value;
-    };
-
     template<typename TPointer>
     struct TIsRegularPointer : public std::false_type
     {
@@ -334,7 +309,7 @@ namespace BMPrivateAccess
 #if PRIVATE_CPP20_FEATURE_SET
         BMPrivateAccesscpp20_::CIsStaticFunctionPtr<TFunction, TArgs...>;
 #else
-        BMPrivateAccesscpp17_::TIsStaticFunctionPtr<TFunction, TArgs...>::bValue;
+        !std::is_member_function_pointer_v<decltype(TFunction)>;
 #endif
 
     template<auto TPointer>
@@ -407,6 +382,29 @@ namespace BMPrivateAccess
         }
     };
 
+    template<bool bIsStatic>
+    struct TFunctionCallDispatch;
+
+    template<>
+    struct TFunctionCallDispatch<true>
+    {
+        template<auto FuncPtr, typename TReturn, typename... TArgs>
+        static TReturn Call(TArgs&&... Args)
+        {
+            return FuncPtr(std::forward<TArgs>(Args)...);
+        }
+    };
+
+    template<>
+    struct TFunctionCallDispatch<false>
+    {
+        template<auto FuncPtr, typename TReturn, typename TObject, typename... TArgs>
+        static TReturn Call(TObject&& Object, TArgs&&... Args)
+        {
+            return (Object.*FuncPtr)(std::forward<TArgs>(Args)...);
+        }
+    };
+    
     template<typename Tag, typename T, typename TReturn, auto TFunctionPtr>
     struct TAccessPrivateFunction
     {
@@ -423,14 +421,7 @@ namespace BMPrivateAccess
         template<typename... TArgs>
         friend TReturn CallPrivate(Tag, TArgs&&... Args)
         {
-            if constexpr(bIsStaticFunctionPtr<TFunctionPtr, TArgs...>)
-            {
-                return TFunctionValue(std::forward<TArgs>(Args)...);
-            }
-            else
-            {
-                return CallHelper(std::forward<TArgs>(Args)...);
-            }
+            return TFunctionCallDispatch<bIsStaticFunctionPtr<TFunctionPtr, TArgs...>>::template Call<TFunctionPtr, TReturn>(std::forward<TArgs>(Args)...);
         }
         
         friend constexpr bool IsConstFunction(Tag)
